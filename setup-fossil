@@ -1,0 +1,89 @@
+#!/bin/bash
+
+VERSION=2.19
+
+# error fail with message to stderr
+ERR() { 
+    echo "$@" 1>&2
+    exit 1
+}
+
+# user curl or wget to get web link
+CAT() {
+    if which curl > /dev/null
+    then
+    	if curl --insecure "$@"
+        then
+            return
+        fi
+    fi
+    if which wget > /dev/null
+    then
+    	if wget -O - "$@"
+        then
+            return
+        fi
+    fi
+    ERR "CAT $@ failed - install curl or wget"
+}
+
+# directory of this script
+AT="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+BIN_DIR="$AT/env/bin"
+DEST_DIR="$BIN_DIR/$(uname -s)-$(uname -m)"
+
+case "$(uname -m)"
+in
+    *32* ) BITS=32 ;;
+    *64* ) BITS=64 ;;
+    *    ) BITS=unknown ;;
+esac
+
+case "$(uname -m)"
+in
+    x86* ) ARCH="x$BITS" ;;
+    arm* ) ARCH="arm$BITS" ;;
+    *    ) ARCH="unknown" ;;
+esac
+
+case "$(uname -s)"
+in
+    Darwin ) OS="mac-$ARCH";;
+    Linux  )
+    if [ -r /proc/version ] && grep -q Microsoft /proc/version
+    then
+        OS=w$BITS
+    elif [ -r /proc/device-tree/model ] && grep -q "Raspberry Pi" /proc/device-tree/model
+    then
+	OS=pi
+    else
+        OS=linux-$ARCH
+    fi
+    ;;
+    * ) OS="unknown" ;;
+esac
+
+if ! ( test -x "$DEST_DIR/fossil" && \
+	( "$DEST_DIR/fossil" version | grep -q "version $VERSION" ) )
+then
+    mkdir -p "$DEST_DIR" || ERR "Could not make directory $DEST_DIR"
+    CAT "https://fossil-scm.org/home/uv/fossil-$OS-$VERSION.tar.gz" | tar -C "$DEST_DIR" -xvf - || ERR "Could not download fossil scm"
+fi
+
+if [ ! -x "$BIN_DIR/fossil" ]
+then
+    cat >"$BIN_DIR/fossil" <<EOF
+#!/bin/bash
+exec "\$( cd -- "\$( dirname -- "\${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/\$(uname -s)-\$(uname -m)/fossil" "\$@"
+EOF
+    chmod +x "$BIN_DIR/fossil"
+fi
+
+if ! ( test -x "$BIN_DIR/fossil" && \
+	( "$BIN_DIR/fossil" version | grep -q "version $VERSION" ) )
+then
+    ERR install failed.
+fi
+
+echo "exec script in $BIN_DIR/fossil runs $DEST_DIR/fossil version $VERSION"
